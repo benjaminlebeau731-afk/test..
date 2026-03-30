@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Distance-Aware Privacy Shield</title>
+    <title>Distance Only Shield</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
         video { width: 100vw; height: 100vh; object-fit: cover; }
@@ -43,13 +43,13 @@
 
         button {
             padding: 20px 40px; font-size: 18px; cursor: pointer;
-            background: #e67e22; color: white; border: none; border-radius: 5px;
+            background: #e74c3c; color: white; border: none; border-radius: 5px;
             font-weight: bold;
         }
 
         #debug {
-            position: fixed; bottom: 10px; left: 10px; color: lime; 
-            font-family: monospace; font-size: 12px; pointer-events: none;
+            position: fixed; bottom: 10px; left: 10px; color: #00ff00; 
+            font-family: monospace; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px;
         }
 
         canvas { display: none; }
@@ -58,17 +58,17 @@
 <body>
 
     <div id="setup-overlay">
-        <button onclick="startApp()">ACTIVATE DISTANCE SENSOR</button>
-        <p style="margin-top:15px; color:#888;">Ignores close-up movement. Triggers on distant movement.</p>
+        <button onclick="startApp()">START DISTANCE SHIELD</button>
+        <p style="margin-top:15px; color:#888;">Sit in front of the cam first, then press start.</p>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
-    <div id="debug">Motion: 0%</div>
+    <div id="debug">Motion: 0.0% | Status: Ready</div>
 
     <div id="whiteout">
         <div id="close-btn" onclick="resetShield()">X</div>
-        <h1 style="color: #ddd;">遠 (DISTANCE TRIGGER)</h1>
+        <h1 style="color: #666; font-size: 50px;">PROTECTED</h1>
     </div>
 
     <script>
@@ -80,7 +80,7 @@
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
         let frameBuffer = [];
-        const BUFFER_SIZE = 12; // Temporal lag to catch slow distant movement
+        const BUFFER_SIZE = 10; 
         let isWhitedOut = false;
 
         async function startApp() {
@@ -93,7 +93,7 @@
                     detectLoop();
                 };
             } catch (err) {
-                alert("Camera access required.");
+                alert("Camera error.");
             }
         }
 
@@ -114,16 +114,25 @@
                                  Math.abs(currentFrame.data[i+1] - oldFrame.data[i+1]) +
                                  Math.abs(currentFrame.data[i+2] - oldFrame.data[i+2]);
                     
-                    if (diff > 90) motionCount++;
+                    if (diff > 100) motionCount++;
                 }
 
                 const motionPercent = (motionCount / (canvas.width * canvas.height));
-                debug.innerText = `Motion: ${(motionPercent * 100).toFixed(1)}%`;
+                
+                // Update Status Text
+                let statusText = "Ignoring (Too Close)";
+                if (motionPercent < 0.05 && motionPercent > 0.005) {
+                    statusText = "TRIGGER ZONE";
+                } else if (motionPercent <= 0.005) {
+                    statusText = "Idle (No Far Motion)";
+                }
 
-                // --- DISTANCE LOGIC ---
-                // If motion is > 0.8% (someone far away moving)
-                // AND motion is < 12% (not you sitting right in front of it)
-                if (motionPercent > 0.008 && motionPercent < 0.12) {
+                debug.innerText = `Motion: ${(motionPercent * 100).toFixed(1)}% | ${statusText}`;
+
+                // --- THE CRITICAL FILTER ---
+                // Trigger ONLY if motion is between 0.5% and 5%
+                // If you move while close, you will likely hit 10%+, so it ignores you.
+                if (motionPercent > 0.005 && motionPercent < 0.05) {
                     triggerWhiteout();
                 }
 
