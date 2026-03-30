@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distance-Aware Privacy Shield</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        video { width: 100vw; height: 100vh; object-fit: cover; }
+        
+        #whiteout {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: white;
+            display: none;
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #close-btn {
+            position: absolute;
+            top: 20px; right: 20px;
+            font-size: 30px; font-weight: bold;
+            color: #444; cursor: pointer;
+            border: 2px solid #444;
+            width: 50px; height: 50px;
+            display: flex; justify-content: center; align-items: center;
+            border-radius: 50%;
+        }
+
+        #setup-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #111;
+            color: white;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 2000;
+        }
+
+        button {
+            padding: 20px 40px; font-size: 18px; cursor: pointer;
+            background: #e67e22; color: white; border: none; border-radius: 5px;
+            font-weight: bold;
+        }
+
+        #debug {
+            position: fixed; bottom: 10px; left: 10px; color: lime; 
+            font-family: monospace; font-size: 12px; pointer-events: none;
+        }
+
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="setup-overlay">
+        <button onclick="startApp()">ACTIVATE DISTANCE SENSOR</button>
+        <p style="margin-top:15px; color:#888;">Ignores close-up movement. Triggers on distant movement.</p>
+    </div>
+
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div id="debug">Motion: 0%</div>
+
+    <div id="whiteout">
+        <div id="close-btn" onclick="resetShield()">X</div>
+        <h1 style="color: #ddd;">遠 (DISTANCE TRIGGER)</h1>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const whiteout = document.getElementById('whiteout');
+        const setupOverlay = document.getElementById('setup-overlay');
+        const debug = document.getElementById('debug');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        let frameBuffer = [];
+        const BUFFER_SIZE = 12; // Temporal lag to catch slow distant movement
+        let isWhitedOut = false;
+
+        async function startApp() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                setupOverlay.style.display = 'none';
+                video.onloadedmetadata = () => {
+                    video.play();
+                    detectLoop();
+                };
+            } catch (err) {
+                alert("Camera access required.");
+            }
+        }
+
+        function detectLoop() {
+            if (isWhitedOut) return;
+
+            canvas.width = 64;
+            canvas.height = 48;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            if (frameBuffer.length >= BUFFER_SIZE) {
+                const oldFrame = frameBuffer[0];
+                let motionCount = 0;
+
+                for (let i = 0; i < currentFrame.data.length; i += 4) {
+                    const diff = Math.abs(currentFrame.data[i] - oldFrame.data[i]) +
+                                 Math.abs(currentFrame.data[i+1] - oldFrame.data[i+1]) +
+                                 Math.abs(currentFrame.data[i+2] - oldFrame.data[i+2]);
+                    
+                    if (diff > 90) motionCount++;
+                }
+
+                const motionPercent = (motionCount / (canvas.width * canvas.height));
+                debug.innerText = `Motion: ${(motionPercent * 100).toFixed(1)}%`;
+
+                // --- DISTANCE LOGIC ---
+                // If motion is > 0.8% (someone far away moving)
+                // AND motion is < 12% (not you sitting right in front of it)
+                if (motionPercent > 0.008 && motionPercent < 0.12) {
+                    triggerWhiteout();
+                }
+
+                frameBuffer.shift();
+            }
+
+            frameBuffer.push(currentFrame);
+            requestAnimationFrame(detectLoop);
+        }
+
+        function triggerWhiteout() {
+            isWhitedOut = true;
+            whiteout.style.display = 'flex';
+        }
+
+        function resetShield() {
+            isWhitedOut = false;
+            whiteout.style.display = 'none';
+            frameBuffer = [];
+            detectLoop();
+        }
+    </script>
+</body>
+</html>
