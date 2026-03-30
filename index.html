@@ -64,7 +64,7 @@
 
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
-    <div id="debug">Motion: 0.0% | Status: Ready</div>
+    <div id="debug">BG Motion: 0.0% | Status: Ready</div>
 
     <div id="whiteout">
         <div id="close-btn" onclick="resetShield()">X</div>
@@ -82,6 +82,7 @@
         let frameBuffer = [];
         const BUFFER_SIZE = 10; 
         let isWhitedOut = false;
+        let animationFrameId;
 
         async function startApp() {
             try {
@@ -93,7 +94,7 @@
                     detectLoop();
                 };
             } catch (err) {
-                alert("Camera error.");
+                alert("Camera error. Please ensure permissions are granted.");
             }
         }
 
@@ -108,51 +109,66 @@
             if (frameBuffer.length >= BUFFER_SIZE) {
                 const oldFrame = frameBuffer[0];
                 let motionCount = 0;
+                let validPixels = 0;
 
-                for (let i = 0; i < currentFrame.data.length; i += 4) {
-                    const diff = Math.abs(currentFrame.data[i] - oldFrame.data[i]) +
-                                 Math.abs(currentFrame.data[i+1] - oldFrame.data[i+1]) +
-                                 Math.abs(currentFrame.data[i+2] - oldFrame.data[i+2]);
-                    
-                    if (diff > 100) motionCount++;
+                // Loop through X and Y coordinates to map the screen
+                for (let y = 0; y < canvas.height; y++) {
+                    for (let x = 0; x < canvas.width; x++) {
+                        
+                        // --- THE SAFE ZONE ---
+                        // Ignore the middle 50% horizontally, and the bottom 70% vertically.
+                        // This assumes you are sitting in the bottom-center of the frame.
+                        const inSafeZone = (x > canvas.width * 0.25 && x < canvas.width * 0.75) && 
+                                           (y > canvas.height * 0.30);
+
+                        if (!inSafeZone) {
+                            const i = (y * canvas.width + x) * 4;
+                            const diff = Math.abs(currentFrame.data[i] - oldFrame.data[i]) +
+                                         Math.abs(currentFrame.data[i+1] - oldFrame.data[i+1]) +
+                                         Math.abs(currentFrame.data[i+2] - oldFrame.data[i+2]);
+                            
+                            if (diff > 100) motionCount++;
+                            validPixels++; // Count how many background pixels we are actually checking
+                        }
+                    }
                 }
 
-                const motionPercent = (motionCount / (canvas.width * canvas.height));
+                // Calculate motion based ONLY on the background pixels
+                const motionPercent = (motionCount / validPixels);
                 
                 // Update Status Text
-                let statusText = "Ignoring (Too Close)";
-                if (motionPercent < 0.05 && motionPercent > 0.005) {
+                let statusText = "Idle";
+                if (motionPercent > 0.02) {
                     statusText = "TRIGGER ZONE";
-                } else if (motionPercent <= 0.005) {
-                    statusText = "Idle (No Far Motion)";
                 }
 
-                debug.innerText = `Motion: ${(motionPercent * 100).toFixed(1)}% | ${statusText}`;
+                debug.innerText = `BG Motion: ${(motionPercent * 100).toFixed(1)}% | ${statusText}`;
 
                 // --- THE CRITICAL FILTER ---
-                // Trigger ONLY if motion is between 0.5% and 5%
-                // If you move while close, you will likely hit 10%+, so it ignores you.
-                if (motionPercent > 0.005 && motionPercent < 0.05) {
+                // Triggers if more than 2% of the unmasked background area moves.
+                if (motionPercent > 0.02) {
                     triggerWhiteout();
+                    return; // Stop the loop while whited out
                 }
 
                 frameBuffer.shift();
             }
 
             frameBuffer.push(currentFrame);
-            requestAnimationFrame(detectLoop);
+            animationFrameId = requestAnimationFrame(detectLoop);
         }
 
         function triggerWhiteout() {
             isWhitedOut = true;
             whiteout.style.display = 'flex';
+            cancelAnimationFrame(animationFrameId); // Pause detection
         }
 
         function resetShield() {
             isWhitedOut = false;
             whiteout.style.display = 'none';
-            frameBuffer = [];
-            detectLoop();
+            frameBuffer = []; // Clear old frames so it doesn't instantly trigger again
+            detectLoop(); // Restart detection
         }
     </script>
 </body>
